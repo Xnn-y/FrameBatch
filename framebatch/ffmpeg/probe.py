@@ -11,9 +11,18 @@ from framebatch.core.models import VideoFile
 from framebatch.ffmpeg.errors import FFprobeUnavailableError, ProbeFailedError
 
 
+DEFAULT_FFPROBE_TIMEOUT_SECONDS = 30
+
+
 class FFprobeVideoProber:
-    def __init__(self, ffprobe_path: Path | None) -> None:
+    def __init__(
+        self,
+        ffprobe_path: Path | None,
+        *,
+        timeout_seconds: int = DEFAULT_FFPROBE_TIMEOUT_SECONDS,
+    ) -> None:
         self.ffprobe_path = ffprobe_path
+        self.timeout_seconds = timeout_seconds
 
     def probe(self, path: Path) -> VideoFile:
         if self.ffprobe_path is None:
@@ -30,14 +39,18 @@ class FFprobeVideoProber:
             str(path),
         ]
 
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ProbeFailedError(f"ffprobe 读取超时，已超过 {self.timeout_seconds} 秒。") from exc
         if completed.returncode != 0:
             detail = completed.stderr.strip() or "ffprobe 读取文件失败。"
             raise ProbeFailedError(detail)

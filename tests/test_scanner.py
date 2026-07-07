@@ -29,7 +29,8 @@ def test_scan_directory_splits_videos_and_non_videos() -> None:
 
     assert result.total_files == 3
     assert [Path(video.path).name for video in result.videos] == ["clip.mp4"]
-    assert {Path(item.path).name for item in result.non_videos} == {"broken.mp4", "notes.txt"}
+    assert {Path(item.path).name for item in result.candidate_videos} == {"broken.mp4"}
+    assert {Path(item.path).name for item in result.non_videos} == {"notes.txt"}
 
 
 def test_scan_directory_marks_candidates_unverified_without_prober() -> None:
@@ -40,4 +41,33 @@ def test_scan_directory_marks_candidates_unverified_without_prober() -> None:
     result = scan_directory(source, prober=None)
 
     assert result.videos == []
-    assert result.non_videos[0].reason == "ffprobe 不可用，无法确认该文件是否为有效视频。"
+    assert result.candidate_videos[0].reason == "ffprobe 不可用，无法确认该文件是否为有效视频。"
+    assert result.non_videos == []
+
+
+def test_scan_directory_sorts_episode_numbers_naturally() -> None:
+    source = Path(__file__).parent / ".runtime" / "scanner_episode_sort"
+    source.mkdir(parents=True, exist_ok=True)
+    names = [
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第31集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第32集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第3集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第40集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第4集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第5集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第9集.mp4",
+    ]
+    for name in names:
+        (source / name).write_text("fake", encoding="utf-8")
+
+    result = scan_directory(source, FakeProber())
+
+    assert [Path(video.path).name for video in result.videos] == [
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第3集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第4集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第5集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第9集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第31集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第32集.mp4",
+        "洗车小工觉醒水鉴，豪门跪求我掌眼-第40集.mp4",
+    ]

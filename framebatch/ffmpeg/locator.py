@@ -74,17 +74,21 @@ def _from_configured_path(configured_ffmpeg_path: str | None) -> FFmpegLocation:
 
 
 def _from_bundled_path(app_root: Path) -> FFmpegLocation:
-    bin_dir = app_root / "tools" / "ffmpeg" / "bin"
-    ffmpeg_path = bin_dir / FFMPEG_EXE
-    ffprobe_path = bin_dir / FFPROBE_EXE
+    candidate_dirs = [
+        app_root / "tools" / "ffmpeg",
+        app_root / "tools" / "ffmpeg" / "bin",
+    ]
 
-    if ffmpeg_path.is_file() and ffprobe_path.is_file():
-        return FFmpegLocation(
-            ffmpeg_path=ffmpeg_path,
-            ffprobe_path=ffprobe_path,
-            source="bundled",
-            message=f"正在使用内置 FFmpeg：{ffmpeg_path}",
-        )
+    for bin_dir in candidate_dirs:
+        ffmpeg_path = bin_dir / FFMPEG_EXE
+        ffprobe_path = bin_dir / FFPROBE_EXE
+        if ffmpeg_path.is_file() and ffprobe_path.is_file():
+            return FFmpegLocation(
+                ffmpeg_path=ffmpeg_path,
+                ffprobe_path=ffprobe_path,
+                source="bundled",
+                message=f"正在使用内置 FFmpeg：{ffmpeg_path}",
+            )
 
     return FFmpegLocation(None, None, "bundled", "未找到内置 FFmpeg。")
 
