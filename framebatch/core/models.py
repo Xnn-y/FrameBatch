@@ -58,4 +58,7 @@ class FrameTask:
     config: TaskConfig
     status: TaskStatus = TaskStatus.PENDING
     black_frame_status: BlackFrameStatus = BlackFrameStatus.NOT_CHECKED
+    cover_path: str | None = None
+    removed_video_path: str | None = None
+    error_code: str | None = None
     message: str = ""

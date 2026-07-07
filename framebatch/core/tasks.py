@@ -24,6 +24,9 @@ def create_frame_tasks(videos: list[VideoFile], default_frame: int) -> list[Fram
 def update_task_frame(task: FrameTask, frame_user_index: int) -> None:
     task.config.frame_user_index = validate_frame_user_index(frame_user_index)
     task.black_frame_status = BlackFrameStatus.NOT_CHECKED
+    task.cover_path = None
+    task.removed_video_path = None
+    task.error_code = None
     validate_task_frame(task)
 
 

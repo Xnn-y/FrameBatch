@@ -26,12 +26,18 @@ def test_create_frame_tasks_warns_when_frame_exceeds_total() -> None:
 def test_update_task_frame_resets_black_frame_status() -> None:
     task = create_frame_tasks([VideoFile(path="a.mp4", total_frames=100)], default_frame=25)[0]
     task.black_frame_status = BlackFrameStatus.SUSPECTED_BLACK
+    task.cover_path = "covers/a_frame_25.jpg"
+    task.removed_video_path = "covers/a_removed_frame_25.mp4"
+    task.error_code = "OLD_ERROR"
 
     update_task_frame(task, 30)
 
     assert task.config.frame_user_index == 30
     assert task.config.frame_zero_based == 29
     assert task.black_frame_status == BlackFrameStatus.NOT_CHECKED
+    assert task.cover_path is None
+    assert task.removed_video_path is None
+    assert task.error_code is None
     assert task.status == TaskStatus.READY
 
 

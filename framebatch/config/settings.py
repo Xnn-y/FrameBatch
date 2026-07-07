@@ -16,6 +16,9 @@ SETTINGS_FILENAME = "settings.json"
 class UserSettings:
     last_input_dir: str | None = None
     last_output_dir: str | None = None
+    last_cover_output_dir: str | None = None
+    last_video_output_dir: str | None = None
+    unified_output_name: str | None = None
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
     default_frame: int = 1
@@ -53,6 +56,9 @@ class SettingsStore:
         store.settings = UserSettings(
             last_input_dir=raw.get("last_input_dir"),
             last_output_dir=raw.get("last_output_dir"),
+            last_cover_output_dir=raw.get("last_cover_output_dir") or raw.get("last_output_dir"),
+            last_video_output_dir=raw.get("last_video_output_dir") or raw.get("last_output_dir"),
+            unified_output_name=raw.get("unified_output_name"),
             ffmpeg_path=raw.get("ffmpeg_path"),
             ffprobe_path=raw.get("ffprobe_path"),
             default_frame=int(raw.get("default_frame", 1)),
