@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Slot
@@ -35,6 +36,7 @@ from framebatch.core.naming import (
     default_video_output_dir,
     split_output_dirs,
 )
+from framebatch.core.results import ResultPaths, write_result_files
 from framebatch.core.scanner import ScanResult
 from framebatch.core.tasks import create_frame_tasks, update_task_frame
 from framebatch.ffmpeg.black_frame import BlackFrameCheckResult
@@ -103,7 +105,9 @@ class MainWindow(QMainWindow):
         self.cover_thread: QThread | None = None
         self.cover_worker: CoverWorker | None = None
         self.tasks: list[FrameTask] = []
+        self.scan_result: ScanResult | None = None
         self.cover_completed_count = 0
+        self.cover_started_at: datetime | None = None
         self.updating_task_table = False
         self.is_busy = False
         self.is_cover_extracting = False
@@ -597,6 +601,7 @@ class MainWindow(QMainWindow):
         self._set_scanning_enabled(False)
         self._clear_tables()
         self.tasks = []
+        self.scan_result = None
         self._refresh_task_actions()
         self.summary_label.setText("正在扫描...")
         self.statusBar().showMessage("正在扫描输入目录")
@@ -616,6 +621,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _scan_finished(self, result: ScanResult) -> None:
+        self.scan_result = result
         self.tasks = create_frame_tasks(result.videos, self.default_frame_spin.value())
         self._populate_tasks()
         self._populate_candidates(result.candidate_videos)
@@ -758,6 +764,7 @@ class MainWindow(QMainWindow):
         self.cover_output_edit.setText(str(cover_output_dir))
         self.video_output_edit.setText(str(video_output_dir))
         self.cover_completed_count = 0
+        self.cover_started_at = datetime.now().astimezone()
         self.progress_bar.setValue(0)
         for task in self.tasks:
             task.status = TaskStatus.PENDING
@@ -868,11 +875,17 @@ class MainWindow(QMainWindow):
         skipped_count = sum(1 for task in self.tasks if task.status == TaskStatus.SKIPPED)
         cover_output_dir = self._resolve_cover_output_dir()
         video_output_dir = self._resolve_video_output_dir()
+        result_paths: ResultPaths | None = None
+        if cover_output_dir and video_output_dir:
+            cover_output_dir, video_output_dir = split_output_dirs(cover_output_dir, video_output_dir)
+            result_paths = self._write_result_report(cover_output_dir, video_output_dir)
         output_text = (
             f"，封面目录：{cover_output_dir}，视频目录：{video_output_dir}"
             if cover_output_dir and video_output_dir
             else ""
         )
+        if result_paths is not None:
+            output_text += f"，结果：{result_paths.result_json.name} / {result_paths.result_csv.name}"
         if canceled_count or skipped_count or self.cover_cancel_requested:
             self.summary_label.setText(
                 f"已终止：成功 {success_count} 个，失败 {failed_count} 个，"
@@ -885,11 +898,42 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().showMessage("处理完成")
 
+    def _write_result_report(
+        self,
+        cover_output_dir: Path,
+        video_output_dir: Path,
+    ) -> ResultPaths | None:
+        started_at = self.cover_started_at or datetime.now().astimezone()
+        finished_at = datetime.now().astimezone()
+        scan_result = self.scan_result
+        source_dir = scan_result.source_dir if scan_result is not None else Path(
+            self.input_edit.text().strip()
+        )
+        candidate_videos = scan_result.candidate_videos if scan_result is not None else []
+        non_videos = scan_result.non_videos if scan_result is not None else []
+        try:
+            return write_result_files(
+                source_dir=source_dir,
+                cover_output_dir=cover_output_dir,
+                video_output_dir=video_output_dir,
+                history_dir=self.settings.path.parent,
+                started_at=started_at,
+                finished_at=finished_at,
+                default_frame=self.default_frame_spin.value(),
+                tasks=self.tasks,
+                candidate_videos=candidate_videos,
+                non_videos=non_videos,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "结果写入失败", f"处理已完成，但结果文件写入失败：\n{exc}")
+            return None
+
     @Slot()
     def _cover_thread_finished(self) -> None:
         self.cover_thread = None
         self.cover_worker = None
         self.is_busy = False
+        self.cover_started_at = None
         self.is_cover_extracting = False
         self.cover_cancel_requested = False
         self._set_processing_enabled(True)
