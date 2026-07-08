@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from PySide6.QtCore import QThread, Qt, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize, QThread, Qt, QUrl, Slot
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -22,9 +23,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStatusBar,
+    QStyle,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +40,8 @@ from framebatch.core.naming import (
     split_output_dirs,
 )
 from framebatch.core.results import ResultPaths, write_result_files
+from framebatch.core.results import clear_history_runs, delete_history_run
+from framebatch.core.results import latest_result_csv_path, load_history_runs, write_history_record_csv
 from framebatch.core.scanner import ScanResult
 from framebatch.core.tasks import create_frame_tasks, update_task_frame
 from framebatch.ffmpeg.black_frame import BlackFrameCheckResult
@@ -60,6 +65,8 @@ TASK_COLUMN_MESSAGE = 10
 TAB_TASKS = 0
 TAB_CANDIDATES = 1
 TAB_NON_VIDEOS = 2
+TAB_HISTORY = 3
+HISTORY_COLUMN_ACTION = 9
 
 TASK_ROW_COLORS = {
     TaskStatus.SUCCESS: "#f0faf3",
@@ -108,6 +115,7 @@ class MainWindow(QMainWindow):
         self.scan_result: ScanResult | None = None
         self.cover_completed_count = 0
         self.cover_started_at: datetime | None = None
+        self.history_records: list[dict[str, object]] = []
         self.updating_task_table = False
         self.is_busy = False
         self.is_cover_extracting = False
@@ -187,16 +195,51 @@ class MainWindow(QMainWindow):
         )
         self.candidate_table = self._create_table(["文件", "未确认原因"], editable=False)
         self.non_video_table = self._create_table(["文件", "原因"], editable=False)
+        self.history_table = self._create_table(
+            [
+                "完成时间",
+                "输入目录",
+                "封面目录",
+                "视频目录",
+                "任务",
+                "成功",
+                "失败",
+                "取消",
+                "跳过",
+                "操作",
+            ],
+            editable=False,
+        )
+        self.history_table.horizontalHeader().setStretchLastSection(False)
+        self.history_table.horizontalHeader().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        self.history_table.horizontalHeader().setSectionResizeMode(
+            HISTORY_COLUMN_ACTION,
+            QHeaderView.ResizeMode.Fixed,
+        )
+        self.history_table.setColumnWidth(HISTORY_COLUMN_ACTION, 58)
+        self.refresh_history_button = QPushButton("刷新历史")
+        self.open_cover_dir_button = QPushButton("打开封面目录")
+        self.open_video_dir_button = QPushButton("打开视频目录")
+        self.clear_history_button = QPushButton("清空历史")
+        self.clear_history_button.setObjectName("clearHistoryButton")
+        self.clear_history_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
         self.file_tabs = QTabWidget()
         self.file_tabs.setObjectName("fileTabs")
         self.file_tabs.addTab(self.task_table, "视频任务（0）")
         self.file_tabs.addTab(self.candidate_table, "候选视频 / 未确认（0）")
         self.file_tabs.addTab(self.non_video_table, "其他文件（0）")
+        self.file_tabs.addTab(self.history_table, "历史记录（0）")
 
         self._build_layout()
         self._connect_signals()
         self._apply_styles()
         self._refresh_ffmpeg_status(save=False)
+        self._refresh_history()
         self._refresh_task_actions()
 
     def _build_layout(self) -> None:
@@ -246,6 +289,13 @@ class MainWindow(QMainWindow):
 
         task_group = QGroupBox("文件列表")
         task_layout = QVBoxLayout(task_group)
+        history_action_layout = QHBoxLayout()
+        history_action_layout.addWidget(self.refresh_history_button)
+        history_action_layout.addWidget(self.open_cover_dir_button)
+        history_action_layout.addWidget(self.open_video_dir_button)
+        history_action_layout.addStretch(1)
+        history_action_layout.addWidget(self.clear_history_button)
+        task_layout.addLayout(history_action_layout)
         task_layout.addWidget(self.file_tabs)
 
         root_layout = QVBoxLayout()
@@ -275,6 +325,13 @@ class MainWindow(QMainWindow):
         self.black_check_button.clicked.connect(self._start_black_check)
         self.extract_cover_button.clicked.connect(self._cover_button_clicked)
         self.overwrite_check.toggled.connect(self._overwrite_changed)
+        self.refresh_history_button.clicked.connect(self._refresh_history)
+        self.open_cover_dir_button.clicked.connect(self._open_selected_history_cover_dir)
+        self.open_video_dir_button.clicked.connect(self._open_selected_history_video_dir)
+        self.clear_history_button.clicked.connect(self._clear_history)
+        self.history_table.itemSelectionChanged.connect(self._refresh_history_actions)
+        self.history_table.cellDoubleClicked.connect(self._open_history_csv_at_row)
+        self.file_tabs.currentChanged.connect(lambda _index: self._refresh_history_actions())
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -391,6 +448,36 @@ class MainWindow(QMainWindow):
                 color: #8391a5;
                 background: #e1e7ef;
                 border: 1px solid #c9d3df;
+            }
+            QPushButton#clearHistoryButton {
+                color: #9f1d1d;
+                background: #fff5f5;
+                border-color: #f5b5b5;
+            }
+            QPushButton#clearHistoryButton:hover {
+                color: #ffffff;
+                background: #d92d20;
+                border-color: #b42318;
+            }
+            QPushButton#clearHistoryButton:disabled {
+                color: #b7a0a0;
+                background: #f1e8e8;
+                border-color: #dfcaca;
+            }
+            QToolButton#historyDeleteButton {
+                min-width: 28px;
+                min-height: 28px;
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 6px;
+            }
+            QToolButton#historyDeleteButton:hover {
+                background: #fee2e2;
+                border-color: #fca5a5;
+            }
+            QToolButton#historyDeleteButton:pressed {
+                background: #fecaca;
+                border-color: #ef4444;
             }
             QTableWidget {
                 color: #172033;
@@ -885,7 +972,8 @@ class MainWindow(QMainWindow):
             else ""
         )
         if result_paths is not None:
-            output_text += f"，结果：{result_paths.result_json.name} / {result_paths.result_csv.name}"
+            self._refresh_history()
+            output_text += f"，结果：{result_paths.result_csv.name}"
         if canceled_count or skipped_count or self.cover_cancel_requested:
             self.summary_label.setText(
                 f"已终止：成功 {success_count} 个，失败 {failed_count} 个，"
@@ -1102,6 +1190,153 @@ class MainWindow(QMainWindow):
             f"候选视频 / 未确认（{self.candidate_table.rowCount()}）",
         )
         self.file_tabs.setTabText(TAB_NON_VIDEOS, f"其他文件（{self.non_video_table.rowCount()}）")
+        self.file_tabs.setTabText(TAB_HISTORY, f"历史记录（{self.history_table.rowCount()}）")
+
+    def _refresh_history(self) -> None:
+        self.history_records = load_history_runs(self.settings.path.parent)
+        self.history_table.setRowCount(len(self.history_records))
+        for row, record in enumerate(self.history_records):
+            values = [
+                _format_history_time(_record_text(record, "finished_at")),
+                _record_text(record, "source_dir"),
+                _record_text(record, "cover_output_dir") or _record_text(record, "output_dir"),
+                _record_text(record, "video_output_dir") or _record_text(record, "output_dir"),
+                _record_text(record, "task_count"),
+                _record_text(record, "success_count"),
+                _record_text(record, "failed_count"),
+                _record_text(record, "canceled_count"),
+                _record_text(record, "skipped_count"),
+            ]
+            for column, value in enumerate(values):
+                item = self._set_item(self.history_table, row, column, value, editable=False)
+                if column in {4, 5, 6, 7, 8}:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._set_history_delete_button(row, record)
+        self._refresh_file_tab_titles()
+        self._refresh_history_actions()
+
+    def _refresh_history_actions(self) -> None:
+        record = self._selected_history_record()
+        self.refresh_history_button.setEnabled(True)
+        self.clear_history_button.setEnabled(bool(self.history_records))
+        self.open_cover_dir_button.setEnabled(
+            record is not None and _history_path_exists(record, "cover_output_dir")
+        )
+        self.open_video_dir_button.setEnabled(
+            record is not None and _history_path_exists(record, "video_output_dir")
+        )
+
+    def _selected_history_record(self) -> dict[str, object] | None:
+        row = self.history_table.currentRow()
+        if row < 0 or row >= len(self.history_records):
+            return None
+        return self.history_records[row]
+
+    def _set_history_delete_button(self, row: int, record: dict[str, object]) -> None:
+        button = QToolButton()
+        button.setObjectName("historyDeleteButton")
+        button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        button.setIconSize(QSize(16, 16))
+        button.setToolTip("删除这条历史记录")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(lambda _checked=False, run_id=_record_text(record, "run_id"): self._delete_history_run(run_id))
+
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addStretch(1)
+        layout.addWidget(button)
+        layout.addStretch(1)
+        self.history_table.setCellWidget(row, HISTORY_COLUMN_ACTION, container)
+
+    def _delete_history_run(self, run_id: str) -> None:
+        if not run_id:
+            return
+        response = QMessageBox.question(
+            self,
+            "删除历史记录",
+            "确定删除这条历史记录吗？\n不会删除已生成的封面图和视频。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+        if delete_history_run(self.settings.path.parent, run_id):
+            self.statusBar().showMessage("已删除历史记录")
+        else:
+            QMessageBox.warning(self, "删除失败", "没有找到这条历史记录，可能已经被删除。")
+        self._refresh_history()
+
+    @Slot()
+    def _clear_history(self) -> None:
+        if not self.history_records:
+            return
+        response = QMessageBox.question(
+            self,
+            "清空历史记录",
+            "确定清空全部历史记录吗？\n不会删除已生成的封面图和视频。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+        removed_count = clear_history_runs(self.settings.path.parent)
+        self.statusBar().showMessage(f"已清空历史记录（{removed_count} 条）")
+        self._refresh_history()
+
+    @Slot()
+    def _open_selected_history_cover_dir(self) -> None:
+        self._open_selected_history_path("cover_output_dir", "封面目录")
+
+    @Slot()
+    def _open_selected_history_video_dir(self) -> None:
+        self._open_selected_history_path("video_output_dir", "视频目录")
+
+    def _open_selected_history_path(self, key: str, label: str) -> None:
+        record = self._selected_history_record()
+        if record is None:
+            return
+        path_text = _history_path_text(record, key)
+        if not path_text:
+            return
+        path = Path(path_text)
+        if not path.exists():
+            QMessageBox.warning(self, f"{label}不存在", f"{label}不存在：\n{path}")
+            self._refresh_history()
+            return
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if not opened:
+            QMessageBox.warning(self, f"无法打开{label}", f"无法打开{label}：\n{path}")
+
+    @Slot(int, int)
+    def _open_history_csv_at_row(self, row: int, _column: int) -> None:
+        if _column == HISTORY_COLUMN_ACTION:
+            return
+        if row < 0 or row >= len(self.history_records):
+            return
+        self.history_table.selectRow(row)
+        self._open_history_csv(self.history_records[row])
+
+    def _open_history_csv(self, record: dict[str, object]) -> None:
+        path = latest_result_csv_path()
+        try:
+            write_history_record_csv(path, record)
+        except ValueError:
+            path_text = _record_text(record, "result_csv")
+            if not path_text:
+                QMessageBox.warning(self, "无法生成 CSV 文件", "这条历史记录缺少任务明细，无法生成 CSV。")
+                return
+            path = Path(path_text)
+        except OSError as exc:
+            QMessageBox.warning(self, "CSV 写入失败", f"无法生成 CSV 文件：\n{exc}")
+            return
+        if not path.exists():
+            QMessageBox.warning(self, "CSV 文件不存在", f"CSV 文件不存在：\n{path}")
+            self._refresh_history()
+            return
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if not opened:
+            QMessageBox.warning(self, "无法打开 CSV 文件", f"无法打开 CSV 文件：\n{path}")
 
     def _set_item(
         self,
@@ -1207,3 +1442,34 @@ def _format_task_status(status: TaskStatus) -> str:
         TaskStatus.SKIPPED: "已跳过",
     }
     return labels[status]
+
+
+def _record_text(record: dict[str, object], key: str) -> str:
+    value = record.get(key)
+    return "" if value is None else str(value)
+
+
+def _format_history_time(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.astimezone()
+    return timestamp.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _history_path_text(record: dict[str, object], key: str) -> str:
+    path_text = _record_text(record, key)
+    if path_text:
+        return path_text
+    if key in {"cover_output_dir", "video_output_dir"}:
+        return _record_text(record, "output_dir")
+    return ""
+
+
+def _history_path_exists(record: dict[str, object], key: str) -> bool:
+    path_text = _history_path_text(record, key)
+    return bool(path_text) and Path(path_text).exists()
