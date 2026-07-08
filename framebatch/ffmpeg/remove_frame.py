@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 
+from framebatch.ffmpeg.cancel import CancelToken, run_cancelable
 from framebatch.ffmpeg.errors import FFmpegError
 
 
@@ -36,6 +37,7 @@ class FrameRemovalRenderer:
         *,
         has_audio: bool,
         overwrite: bool,
+        cancel_token: CancelToken | None = None,
     ) -> RemoveFrameResult:
         if self.ffmpeg_path is None:
             raise FFmpegError("FFMPEG_NOT_FOUND", "ffmpeg 不可用，无法生成去帧视频。")
@@ -49,7 +51,7 @@ class FrameRemovalRenderer:
             overwrite=overwrite,
             audio_mode="copy",
         )
-        completed = self._run(command)
+        completed = self._run(command, cancel_token=cancel_token)
         if completed.returncode != 0 and has_audio:
             fallback = self._build_command(
                 video_path,
@@ -59,7 +61,7 @@ class FrameRemovalRenderer:
                 overwrite=True,
                 audio_mode="aac",
             )
-            completed = self._run(fallback)
+            completed = self._run(fallback, cancel_token=cancel_token)
             if completed.returncode == 0:
                 _ensure_output(output_path)
                 return RemoveFrameResult(
@@ -74,13 +76,17 @@ class FrameRemovalRenderer:
         _ensure_output(output_path)
         return RemoveFrameResult(video_path=output_path, message="去帧视频生成成功。")
 
-    def _run(self, command: list[str]) -> subprocess.CompletedProcess[bytes]:
+    def _run(
+        self,
+        command: list[str],
+        *,
+        cancel_token: CancelToken | None = None,
+    ) -> subprocess.CompletedProcess[bytes]:
         try:
-            return subprocess.run(
+            return run_cancelable(
                 command,
-                capture_output=True,
-                check=False,
                 timeout=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
         except subprocess.TimeoutExpired as exc:
             raise FFmpegError(

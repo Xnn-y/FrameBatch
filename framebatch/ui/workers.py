@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from framebatch.core.models import BlackFrameStatus, FrameTask
 from framebatch.core.naming import (
     output_stem_for_task,
+    split_output_dirs,
     task_output_paths,
     validate_cover_output,
     validate_removed_video_output,
@@ -16,6 +17,7 @@ from framebatch.core.naming import (
 from framebatch.core.scanner import ScanResult, scan_directory
 from framebatch.core.tasks import task_frame_error
 from framebatch.ffmpeg.black_frame import BlackFrameChecker, BlackFrameCheckResult
+from framebatch.ffmpeg.cancel import CANCELED_ERROR_CODE, CANCELED_MESSAGE, CancelToken
 from framebatch.ffmpeg.cover import CoverExtractor
 from framebatch.ffmpeg.errors import FFmpegError
 from framebatch.ffmpeg.probe import FFprobeVideoProber
@@ -116,10 +118,17 @@ class CoverWorker(QObject):
         super().__init__()
         self.tasks = tasks
         self.ffmpeg_path = ffmpeg_path
-        self.cover_output_dir = cover_output_dir
-        self.video_output_dir = video_output_dir
+        self.cover_output_dir, self.video_output_dir = split_output_dirs(
+            cover_output_dir,
+            video_output_dir,
+        )
         self.unified_name = unified_name
         self.overwrite = overwrite
+        self.cancel_token = CancelToken()
+
+    @Slot()
+    def cancel(self) -> None:
+        self.cancel_token.cancel()
 
     @Slot()
     def run(self) -> None:
@@ -134,6 +143,17 @@ class CoverWorker(QObject):
 
         total_tasks = len(self.tasks)
         for index, task in enumerate(self.tasks):
+            if self.cancel_token.is_requested():
+                self.task_finished.emit(
+                    index,
+                    False,
+                    "",
+                    "",
+                    "TASK_SKIPPED",
+                    "已跳过：抽帧已终止。",
+                )
+                continue
+
             self.task_started.emit(index)
             frame_error = task_frame_error(task)
             if frame_error is not None:
@@ -158,6 +178,7 @@ class CoverWorker(QObject):
                     task.config.frame_zero_based,
                     output_paths.cover_path,
                     overwrite=self.overwrite,
+                    cancel_token=self.cancel_token,
                 )
                 video_result = renderer.render(
                     Path(task.video.path),
@@ -165,6 +186,7 @@ class CoverWorker(QObject):
                     output_paths.removed_video_path,
                     has_audio=task.video.has_audio,
                     overwrite=self.overwrite,
+                    cancel_token=self.cancel_token,
                 )
             except FileExistsError as exc:
                 self.task_finished.emit(index, False, "", "", "OUTPUT_EXISTS", str(exc))
@@ -172,7 +194,8 @@ class CoverWorker(QObject):
                 cover_path = (
                     str(output_paths.cover_path) if output_paths.cover_path.exists() else ""
                 )
-                self.task_finished.emit(index, False, cover_path, "", exc.code, exc.message)
+                message = CANCELED_MESSAGE if exc.code == CANCELED_ERROR_CODE else exc.message
+                self.task_finished.emit(index, False, cover_path, "", exc.code, message)
             except Exception as exc:
                 self.task_finished.emit(index, False, "", "", "UNKNOWN_ERROR", str(exc))
             else:

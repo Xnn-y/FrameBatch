@@ -1,10 +1,11 @@
 from pathlib import Path
+import json
 
 from framebatch.config.settings import SettingsStore
 
 
-def test_settings_round_trip() -> None:
-    settings_path = Path(__file__).parent / ".runtime" / "settings.json"
+def test_settings_round_trip(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
     store = SettingsStore.load(settings_path)
 
     store.update(
@@ -27,3 +28,16 @@ def test_settings_round_trip() -> None:
     assert loaded.settings.unified_output_name == "episode"
     assert loaded.settings.default_frame == 25
     assert loaded.settings.overwrite_outputs is True
+
+
+def test_settings_migrates_legacy_single_output_dir_to_split_dirs(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps({"last_output_dir": "D:/input/covers"}),
+        encoding="utf-8",
+    )
+
+    loaded = SettingsStore.load(settings_path)
+
+    assert Path(loaded.settings.last_cover_output_dir or "") == Path("D:/input/covers")
+    assert Path(loaded.settings.last_video_output_dir or "") == Path("D:/input/videos")

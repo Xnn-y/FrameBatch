@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from framebatch.ffmpeg.cancel import CancelToken
 from framebatch.ffmpeg.errors import FFmpegError
 from framebatch.ffmpeg.remove_frame import FrameRemovalRenderer
 
@@ -81,3 +82,21 @@ def test_frame_removal_renderer_reports_timeout(
         renderer.render(Path("video.mp4"), 0, tmp_path / "out.mp4", has_audio=False, overwrite=False)
 
     assert excinfo.value.code == "VIDEO_RENDER_TIMEOUT"
+
+
+def test_frame_removal_renderer_honors_cancel_token(tmp_path: Path) -> None:
+    token = CancelToken()
+    token.cancel()
+    renderer = FrameRemovalRenderer(Path("ffmpeg.exe"), timeout_seconds=1)
+
+    with pytest.raises(FFmpegError) as excinfo:
+        renderer.render(
+            Path("video.mp4"),
+            0,
+            tmp_path / "out.mp4",
+            has_audio=False,
+            overwrite=False,
+            cancel_token=token,
+        )
+
+    assert excinfo.value.code == "OPERATION_CANCELED"

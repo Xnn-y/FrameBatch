@@ -7,6 +7,8 @@ from pathlib import Path
 import json
 import os
 
+from framebatch.core.naming import split_output_dirs
+
 
 APP_NAME = "FrameBatch"
 SETTINGS_FILENAME = "settings.json"
@@ -53,11 +55,13 @@ class SettingsStore:
         with store.path.open("r", encoding="utf-8") as file:
             raw = json.load(file)
 
+        last_cover_output_dir, last_video_output_dir = _load_split_output_dirs(raw)
+
         store.settings = UserSettings(
             last_input_dir=raw.get("last_input_dir"),
             last_output_dir=raw.get("last_output_dir"),
-            last_cover_output_dir=raw.get("last_cover_output_dir") or raw.get("last_output_dir"),
-            last_video_output_dir=raw.get("last_video_output_dir") or raw.get("last_output_dir"),
+            last_cover_output_dir=last_cover_output_dir,
+            last_video_output_dir=last_video_output_dir,
             unified_output_name=raw.get("unified_output_name"),
             ffmpeg_path=raw.get("ffmpeg_path"),
             ffprobe_path=raw.get("ffprobe_path"),
@@ -76,3 +80,25 @@ class SettingsStore:
             if not hasattr(self.settings, key):
                 raise KeyError(f"Unknown setting: {key}")
             setattr(self.settings, key, value)
+
+
+def _load_split_output_dirs(raw: dict[str, object]) -> tuple[str | None, str | None]:
+    cover_output_dir = _optional_string(raw.get("last_cover_output_dir")) or _optional_string(
+        raw.get("last_output_dir")
+    )
+    video_output_dir = _optional_string(raw.get("last_video_output_dir")) or _optional_string(
+        raw.get("last_output_dir")
+    )
+    if not cover_output_dir or not video_output_dir:
+        return cover_output_dir, video_output_dir
+
+    cover_path = Path(cover_output_dir)
+    video_path = Path(video_output_dir)
+    split_cover_path, split_video_path = split_output_dirs(cover_path, video_path)
+    if (split_cover_path, split_video_path) == (cover_path, video_path):
+        return cover_output_dir, video_output_dir
+    return str(split_cover_path), str(split_video_path)
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None

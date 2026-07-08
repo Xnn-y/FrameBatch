@@ -30,10 +30,15 @@ from PySide6.QtWidgets import (
 
 from framebatch.config.settings import SettingsStore
 from framebatch.core.models import BlackFrameStatus, FrameTask, NonVideoFile, TaskStatus
-from framebatch.core.naming import default_cover_output_dir, default_video_output_dir
+from framebatch.core.naming import (
+    default_cover_output_dir,
+    default_video_output_dir,
+    split_output_dirs,
+)
 from framebatch.core.scanner import ScanResult
 from framebatch.core.tasks import create_frame_tasks, update_task_frame
 from framebatch.ffmpeg.black_frame import BlackFrameCheckResult
+from framebatch.ffmpeg.cancel import CANCELED_ERROR_CODE
 from framebatch.ffmpeg.locator import FFmpegLocation, locate_ffmpeg
 from framebatch.ui.workers import BlackFrameWorker, CoverWorker, ScanWorker
 
@@ -101,6 +106,8 @@ class MainWindow(QMainWindow):
         self.cover_completed_count = 0
         self.updating_task_table = False
         self.is_busy = False
+        self.is_cover_extracting = False
+        self.cover_cancel_requested = False
 
         self.setWindowTitle("FrameBatch")
         self.resize(1280, 780)
@@ -262,7 +269,7 @@ class MainWindow(QMainWindow):
         self.scan_button.clicked.connect(self._start_scan)
         self.apply_frame_button.clicked.connect(self._apply_default_frame_to_all)
         self.black_check_button.clicked.connect(self._start_black_check)
-        self.extract_cover_button.clicked.connect(self._start_cover_extract)
+        self.extract_cover_button.clicked.connect(self._cover_button_clicked)
         self.overwrite_check.toggled.connect(self._overwrite_changed)
 
     def _apply_styles(self) -> None:
@@ -573,6 +580,7 @@ class MainWindow(QMainWindow):
         video_output_dir = self._resolve_video_output_dir()
         if cover_output_dir is None or video_output_dir is None:
             return
+        cover_output_dir, video_output_dir = split_output_dirs(cover_output_dir, video_output_dir)
         self.cover_output_edit.setText(str(cover_output_dir))
         self.video_output_edit.setText(str(video_output_dir))
         self.settings.update(
@@ -708,6 +716,22 @@ class MainWindow(QMainWindow):
         self._set_processing_enabled(True)
 
     @Slot()
+    def _cover_button_clicked(self) -> None:
+        if self.is_cover_extracting:
+            self._request_cover_cancel()
+            return
+        self._start_cover_extract()
+
+    def _request_cover_cancel(self) -> None:
+        if not self.cover_worker or self.cover_cancel_requested:
+            return
+        self.cover_cancel_requested = True
+        self.extract_cover_button.setText("正在终止...")
+        self.extract_cover_button.setEnabled(False)
+        self.statusBar().showMessage("正在终止抽帧")
+        self.cover_worker.cancel()
+
+    @Slot()
     def _start_cover_extract(self) -> None:
         if not self.tasks:
             QMessageBox.information(self, "没有任务", "请先扫描出有效视频任务。")
@@ -720,6 +744,7 @@ class MainWindow(QMainWindow):
         video_output_dir = self._resolve_video_output_dir()
         if cover_output_dir is None or video_output_dir is None:
             return
+        cover_output_dir, video_output_dir = split_output_dirs(cover_output_dir, video_output_dir)
 
         self.settings.update(
             last_output_dir=str(cover_output_dir),
@@ -743,6 +768,8 @@ class MainWindow(QMainWindow):
         self._populate_tasks()
 
         self.is_busy = True
+        self.is_cover_extracting = True
+        self.cover_cancel_requested = False
         self._set_processing_enabled(False)
         self.statusBar().showMessage("正在抽帧")
 
@@ -816,7 +843,14 @@ class MainWindow(QMainWindow):
         task.removed_video_path = removed_video_path or None
         task.error_code = error_code or None
         task.message = message
-        task.status = TaskStatus.SUCCESS if success else TaskStatus.FAILED
+        if success:
+            task.status = TaskStatus.SUCCESS
+        elif error_code == CANCELED_ERROR_CODE:
+            task.status = TaskStatus.CANCELED
+        elif error_code == "TASK_SKIPPED":
+            task.status = TaskStatus.SKIPPED
+        else:
+            task.status = TaskStatus.FAILED
         self.cover_completed_count += 1
         self.progress_bar.setValue(round(self.cover_completed_count / len(self.tasks) * 100))
         self._set_task_row(row, task)
@@ -830,6 +864,8 @@ class MainWindow(QMainWindow):
     def _cover_extract_finished(self) -> None:
         success_count = sum(1 for task in self.tasks if task.status == TaskStatus.SUCCESS)
         failed_count = sum(1 for task in self.tasks if task.status == TaskStatus.FAILED)
+        canceled_count = sum(1 for task in self.tasks if task.status == TaskStatus.CANCELED)
+        skipped_count = sum(1 for task in self.tasks if task.status == TaskStatus.SKIPPED)
         cover_output_dir = self._resolve_cover_output_dir()
         video_output_dir = self._resolve_video_output_dir()
         output_text = (
@@ -837,16 +873,25 @@ class MainWindow(QMainWindow):
             if cover_output_dir and video_output_dir
             else ""
         )
-        self.summary_label.setText(
-            f"处理完成：成功 {success_count} 个，失败 {failed_count} 个{output_text}。"
-        )
-        self.statusBar().showMessage("处理完成")
+        if canceled_count or skipped_count or self.cover_cancel_requested:
+            self.summary_label.setText(
+                f"已终止：成功 {success_count} 个，失败 {failed_count} 个，"
+                f"取消 {canceled_count} 个，跳过 {skipped_count} 个{output_text}。"
+            )
+            self.statusBar().showMessage("抽帧已终止")
+        else:
+            self.summary_label.setText(
+                f"处理完成：成功 {success_count} 个，失败 {failed_count} 个{output_text}。"
+            )
+            self.statusBar().showMessage("处理完成")
 
     @Slot()
     def _cover_thread_finished(self) -> None:
         self.cover_thread = None
         self.cover_worker = None
         self.is_busy = False
+        self.is_cover_extracting = False
+        self.cover_cancel_requested = False
         self._set_processing_enabled(True)
 
     def _task_frame_changed(self, row: int, frame: int) -> None:
@@ -890,7 +935,8 @@ class MainWindow(QMainWindow):
         self.default_video_output_button.setEnabled(enabled)
         self.unified_name_edit.setEnabled(enabled)
         self.overwrite_check.setEnabled(enabled)
-        self.task_table.setEnabled(enabled)
+        self.task_table.setEnabled(True)
+        self._set_task_frame_controls_enabled(enabled)
         self._refresh_task_actions()
 
     def _refresh_task_actions(self) -> None:
@@ -900,7 +946,14 @@ class MainWindow(QMainWindow):
         can_extract_cover = can_interact and self.ffmpeg_location.ffmpeg_path is not None
         self.apply_frame_button.setEnabled(can_interact)
         self.black_check_button.setEnabled(can_check_black)
-        self.extract_cover_button.setEnabled(can_extract_cover)
+        if self.is_cover_extracting:
+            self.extract_cover_button.setText(
+                "正在终止..." if self.cover_cancel_requested else "终止抽帧"
+            )
+            self.extract_cover_button.setEnabled(not self.cover_cancel_requested)
+        else:
+            self.extract_cover_button.setText("开始抽帧")
+            self.extract_cover_button.setEnabled(can_extract_cover)
         if can_check_black:
             self.black_check_button.setToolTip("检测每个任务目标帧是否疑似黑屏")
         elif has_tasks and self.ffmpeg_location.ffmpeg_path is None:
@@ -910,7 +963,11 @@ class MainWindow(QMainWindow):
         else:
             self.black_check_button.setToolTip("请先扫描出有效视频任务")
 
-        if can_extract_cover:
+        if self.is_cover_extracting:
+            self.extract_cover_button.setToolTip(
+                "终止当前抽帧任务；已完成的输出会保留，未开始的任务会跳过"
+            )
+        elif can_extract_cover:
             self.extract_cover_button.setToolTip("逐个任务抽取目标帧封面并生成去帧视频")
         elif has_tasks and self.ffmpeg_location.ffmpeg_path is None:
             self.extract_cover_button.setToolTip("请先配置 ffmpeg.exe，再开始抽帧")
@@ -968,8 +1025,15 @@ class MainWindow(QMainWindow):
             spin.setToolTip(f"当前视频总帧数：{total_frames}")
         else:
             spin.setToolTip("当前视频总帧数未知")
+        spin.setEnabled(not self.is_busy)
         spin.valueChanged.connect(lambda value, row=row: self._task_frame_changed(row, value))
         self.task_table.setCellWidget(row, TASK_COLUMN_FRAME, spin)
+
+    def _set_task_frame_controls_enabled(self, enabled: bool) -> None:
+        for row in range(self.task_table.rowCount()):
+            widget = self.task_table.cellWidget(row, TASK_COLUMN_FRAME)
+            if widget is not None:
+                widget.setEnabled(enabled)
 
     def _populate_candidates(self, files: list[NonVideoFile]) -> None:
         self.candidate_table.setRowCount(len(files))

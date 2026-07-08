@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 
+from framebatch.ffmpeg.cancel import CancelToken, run_cancelable
 from framebatch.ffmpeg.errors import FFmpegError
 
 
@@ -35,6 +36,7 @@ class CoverExtractor:
         output_path: Path,
         *,
         overwrite: bool,
+        cancel_token: CancelToken | None = None,
     ) -> CoverExtractionResult:
         if self.ffmpeg_path is None:
             raise FFmpegError("FFMPEG_NOT_FOUND", "ffmpeg 不可用，无法抽取封面。")
@@ -56,11 +58,10 @@ class CoverExtractor:
             str(output_path),
         ]
         try:
-            completed = subprocess.run(
+            completed = run_cancelable(
                 command,
-                capture_output=True,
-                check=False,
                 timeout=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
         except subprocess.TimeoutExpired as exc:
             raise FFmpegError(

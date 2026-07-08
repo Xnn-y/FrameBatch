@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from framebatch.ffmpeg.cancel import CancelToken
 from framebatch.ffmpeg.cover import CoverExtractor
 from framebatch.ffmpeg.errors import FFmpegError
 
@@ -65,3 +66,20 @@ def test_cover_extractor_reports_timeout(monkeypatch: pytest.MonkeyPatch, tmp_pa
         extractor.extract(Path("video.mp4"), 0, tmp_path / "cover.jpg", overwrite=False)
 
     assert excinfo.value.code == "COVER_EXTRACT_TIMEOUT"
+
+
+def test_cover_extractor_honors_cancel_token(tmp_path: Path) -> None:
+    token = CancelToken()
+    token.cancel()
+    extractor = CoverExtractor(Path("ffmpeg.exe"), timeout_seconds=1)
+
+    with pytest.raises(FFmpegError) as excinfo:
+        extractor.extract(
+            Path("video.mp4"),
+            0,
+            tmp_path / "cover.jpg",
+            overwrite=False,
+            cancel_token=token,
+        )
+
+    assert excinfo.value.code == "OPERATION_CANCELED"

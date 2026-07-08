@@ -9,6 +9,7 @@ from framebatch.core.naming import (
     default_video_output_dir,
     normalize_output_stem,
     output_stem_for_task,
+    split_output_dirs,
     task_output_paths,
     validate_cover_output,
 )
@@ -33,6 +34,20 @@ def test_task_output_paths_use_source_stem_in_split_dirs() -> None:
     assert paths.removed_video_path == Path("videos") / "episode01.mp4"
 
 
+def test_split_output_dirs_expands_shared_root_to_subdirectories() -> None:
+    cover_dir, video_dir = split_output_dirs(Path("output"), Path("output"))
+
+    assert cover_dir == Path("output") / "covers"
+    assert video_dir == Path("output") / "videos"
+
+
+def test_split_output_dirs_keeps_legacy_covers_dir_for_images() -> None:
+    cover_dir, video_dir = split_output_dirs(Path("input") / "covers", Path("input") / "covers")
+
+    assert cover_dir == Path("input") / "covers"
+    assert video_dir == Path("input") / "videos"
+
+
 def test_output_stem_for_task_uses_numbered_unified_name_for_batches() -> None:
     task = FrameTask(
         task_id="task_0001",
@@ -40,7 +55,7 @@ def test_output_stem_for_task_uses_numbered_unified_name_for_batches() -> None:
         config=TaskConfig(frame_user_index=25),
     )
 
-    assert output_stem_for_task(task, index=2, total=12, unified_name="batch") == "batch_0002"
+    assert output_stem_for_task(task, index=2, total=12, unified_name="batch") == "batch_2"
     assert output_stem_for_task(task, index=1, total=1, unified_name="batch") == "batch"
     assert output_stem_for_task(task, index=1, total=12, unified_name="") == "episode01"
 
