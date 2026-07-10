@@ -5,10 +5,13 @@ from __future__ import annotations
 from fractions import Fraction
 from pathlib import Path
 import json
+import platform
 import subprocess
 
 from framebatch.core.models import VideoFile
 from framebatch.ffmpeg.errors import FFprobeUnavailableError, ProbeFailedError
+
+_CREATE_NO_WINDOW = 0x08000000 if platform.system() == "Windows" else 0
 
 
 DEFAULT_FFPROBE_TIMEOUT_SECONDS = 30
@@ -48,6 +51,7 @@ class FFprobeVideoProber:
                 errors="replace",
                 check=False,
                 timeout=self.timeout_seconds,
+                creationflags=_CREATE_NO_WINDOW,
             )
         except subprocess.TimeoutExpired as exc:
             raise ProbeFailedError(f"ffprobe 读取超时，已超过 {self.timeout_seconds} 秒。") from exc

@@ -7,17 +7,31 @@ from datetime import datetime
 from pathlib import Path
 import csv
 import json
+import os
 import sys
 
 from framebatch import __version__
-from framebatch.core.models import BlackFrameStatus, FrameTask, NonVideoFile, TaskStatus
+from framebatch.core.models import FrameTask, NonVideoFile, TaskStatus
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 HISTORY_FILENAME = "history.json"
 MAX_HISTORY_RUNS = 50
 REPORTS_DIRNAME = "reports"
 LATEST_RESULT_CSV_FILENAME = "result.csv"
+
+CSV_FIELDNAMES = [
+    "处理状态",
+    "源视频",
+    "封面图片",
+    "输出视频",
+    "时长",
+    "帧率",
+    "总帧数",
+    "分辨率",
+    "音频",
+    "说明",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +51,10 @@ def application_dir() -> Path:
 
 
 def default_report_root_dir() -> Path:
-    return application_dir() / REPORTS_DIRNAME
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "FrameBatch" / REPORTS_DIRNAME
+    return Path.home() / ".framebatch" / REPORTS_DIRNAME
 
 
 def latest_result_csv_path(report_root_dir: Path | None = None) -> Path:
@@ -74,7 +91,6 @@ def delete_history_run(history_dir: Path, run_id: str) -> bool:
         return False
 
     history["runs"] = kept_runs
-    _cleanup_removed_report_dirs(removed_runs)
     _write_history(history_path, history)
     return True
 
@@ -90,7 +106,6 @@ def clear_history_runs(history_dir: Path) -> int:
     if removed_count == 0 and history_path.exists():
         return 0
 
-    _cleanup_removed_report_dirs(runs)
     history["runs"] = []
     _write_history(history_path, history)
     return removed_count
@@ -99,18 +114,19 @@ def clear_history_runs(history_dir: Path) -> int:
 def write_result_files(
     *,
     source_dir: Path,
-    cover_output_dir: Path,
-    video_output_dir: Path,
+    cover_image_path: Path,
+    output_dir: Path,
     report_root_dir: Path | None = None,
     history_dir: Path,
     started_at: datetime,
     finished_at: datetime,
-    default_frame: int,
     tasks: list[FrameTask],
     candidate_videos: list[NonVideoFile],
     non_videos: list[NonVideoFile],
 ) -> ResultPaths:
     run_id = make_run_id(started_at)
+    if report_root_dir is None:
+        report_root_dir = history_dir / REPORTS_DIRNAME
     result_paths = ResultPaths(
         result_json=history_path_for(history_dir),
         result_csv=latest_result_csv_path(report_root_dir),
@@ -118,11 +134,10 @@ def write_result_files(
     payload = build_result_payload(
         run_id=run_id,
         source_dir=source_dir,
-        cover_output_dir=cover_output_dir,
-        video_output_dir=video_output_dir,
+        cover_image_path=cover_image_path,
+        output_dir=output_dir,
         started_at=started_at,
         finished_at=finished_at,
-        default_frame=default_frame,
         tasks=tasks,
         candidate_videos=candidate_videos,
         non_videos=non_videos,
@@ -137,11 +152,10 @@ def build_result_payload(
     *,
     run_id: str,
     source_dir: Path,
-    cover_output_dir: Path,
-    video_output_dir: Path,
+    cover_image_path: Path,
+    output_dir: Path,
     started_at: datetime,
     finished_at: datetime,
-    default_frame: int,
     tasks: list[FrameTask],
     candidate_videos: list[NonVideoFile],
     non_videos: list[NonVideoFile],
@@ -152,12 +166,10 @@ def build_result_payload(
         "run_id": run_id,
         "app_version": __version__,
         "source_dir": str(source_dir),
-        "cover_output_dir": str(cover_output_dir),
-        "video_output_dir": str(video_output_dir),
-        "output_dir": str(cover_output_dir),
+        "cover_image_path": str(cover_image_path),
+        "output_dir": str(output_dir),
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
-        "default_frame": default_frame,
         "summary": summary,
         "tasks": [_task_to_record(task) for task in tasks],
         "candidate_video_files": [_non_video_to_record(item) for item in candidate_videos],
@@ -168,39 +180,10 @@ def build_result_payload(
 def write_result_csv(path: Path, tasks: list[FrameTask]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "处理状态",
-                "源视频",
-                "目标帧",
-                "黑屏检测",
-                "时长",
-                "帧率",
-                "总帧数",
-                "音频",
-                "封面图",
-                "去帧视频",
-                "说明",
-            ],
-        )
+        writer = csv.DictWriter(file, fieldnames=CSV_FIELDNAMES)
         writer.writeheader()
         for task in tasks:
-            writer.writerow(
-                {
-                    "处理状态": _format_task_status(task.status),
-                    "源视频": Path(task.video.path).name,
-                    "目标帧": task.config.frame_user_index,
-                    "黑屏检测": _format_black_frame_status(task.black_frame_status),
-                    "时长": _format_duration(task.video.duration_seconds),
-                    "帧率": _format_number(task.video.frame_rate),
-                    "总帧数": task.video.total_frames if task.video.total_frames is not None else "未知",
-                    "音频": "有" if task.video.has_audio else "无",
-                    "封面图": Path(task.cover_path).name if task.cover_path else "",
-                    "去帧视频": Path(task.removed_video_path).name if task.removed_video_path else "",
-                    "说明": _format_task_message(task),
-                }
-            )
+            writer.writerow(_task_to_csv_row(task))
 
 
 def write_history_record_csv(path: Path, record: dict[str, object]) -> Path:
@@ -210,22 +193,7 @@ def write_history_record_csv(path: Path, record: dict[str, object]) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "处理状态",
-                "源视频",
-                "目标帧",
-                "黑屏检测",
-                "时长",
-                "帧率",
-                "总帧数",
-                "音频",
-                "封面图",
-                "去帧视频",
-                "说明",
-            ],
-        )
+        writer = csv.DictWriter(file, fieldnames=CSV_FIELDNAMES)
         writer.writeheader()
         for task in tasks:
             if isinstance(task, dict):
@@ -246,8 +214,7 @@ def append_history(
     record = {
         "run_id": result_payload["run_id"],
         "source_dir": result_payload["source_dir"],
-        "cover_output_dir": result_payload["cover_output_dir"],
-        "video_output_dir": result_payload["video_output_dir"],
+        "cover_image_path": result_payload["cover_image_path"],
         "output_dir": result_payload["output_dir"],
         "started_at": result_payload["started_at"],
         "finished_at": result_payload["finished_at"],
@@ -265,7 +232,6 @@ def append_history(
     runs.insert(0, record)
     removed_runs = runs[MAX_HISTORY_RUNS:]
     del runs[MAX_HISTORY_RUNS:]
-    _cleanup_removed_report_dirs(removed_runs)
     _write_history(history_path, history)
     return history_path
 
@@ -292,10 +258,7 @@ def _task_to_record(task: FrameTask) -> dict[str, object]:
     return {
         "task_id": task.task_id,
         "source_video": task.video.path,
-        "frame_user_index": task.config.frame_user_index,
-        "frame_zero_based": task.config.frame_zero_based,
         "status": task.status.value,
-        "black_frame_status": task.black_frame_status.value,
         "cover_path": task.cover_path,
         "video_path": task.removed_video_path,
         "error_code": task.error_code,
@@ -303,8 +266,24 @@ def _task_to_record(task: FrameTask) -> dict[str, object]:
         "duration_seconds": task.video.duration_seconds,
         "frame_rate": task.video.frame_rate,
         "total_frames": task.video.total_frames,
+        "width": task.video.width,
+        "height": task.video.height,
         "has_audio": task.video.has_audio,
-        "duration_ms": None,
+    }
+
+
+def _task_to_csv_row(task: FrameTask) -> dict[str, object]:
+    return {
+        "处理状态": _format_task_status(task.status),
+        "源视频": Path(task.video.path).name,
+        "封面图片": Path(task.cover_path).name if task.cover_path else "",
+        "输出视频": Path(task.removed_video_path).name if task.removed_video_path else "",
+        "时长": _format_duration(task.video.duration_seconds),
+        "帧率": _format_number(task.video.frame_rate),
+        "总帧数": task.video.total_frames if task.video.total_frames is not None else "未知",
+        "分辨率": _format_resolution(task.video.width, task.video.height),
+        "音频": "有" if task.video.has_audio else "无",
+        "说明": _format_task_message(task),
     }
 
 
@@ -315,14 +294,13 @@ def _task_record_to_csv_row(task: dict[str, object]) -> dict[str, object]:
     return {
         "处理状态": _format_task_status_value(task.get("status")),
         "源视频": Path(source_video).name if source_video else "",
-        "目标帧": task.get("frame_user_index") or "",
-        "黑屏检测": _format_black_frame_status_value(task.get("black_frame_status")),
+        "封面图片": Path(cover_path).name if cover_path else "",
+        "输出视频": Path(video_path).name if video_path else "",
         "时长": _format_duration(_float_or_none(task.get("duration_seconds"))),
         "帧率": _format_number(_float_or_none(task.get("frame_rate"))),
         "总帧数": task.get("total_frames") if task.get("total_frames") is not None else "未知",
+        "分辨率": _format_resolution(_int_or_none(task.get("width")), _int_or_none(task.get("height"))),
         "音频": "有" if bool(task.get("has_audio")) else "无",
-        "封面图": Path(cover_path).name if cover_path else "",
-        "去帧视频": Path(video_path).name if video_path else "",
         "说明": _format_record_message(task),
     }
 
@@ -350,27 +328,9 @@ def _format_task_status(status: TaskStatus) -> str:
     return labels[status]
 
 
-def _format_black_frame_status(status: BlackFrameStatus) -> str:
-    labels = {
-        BlackFrameStatus.NOT_CHECKED: "未检测",
-        BlackFrameStatus.CHECKING: "检测中",
-        BlackFrameStatus.OK: "正常",
-        BlackFrameStatus.SUSPECTED_BLACK: "疑似黑屏",
-        BlackFrameStatus.FAILED: "检测失败",
-    }
-    return labels[status]
-
-
 def _format_task_status_value(value: object) -> str:
     try:
         return _format_task_status(TaskStatus(str(value)))
-    except ValueError:
-        return str(value or "")
-
-
-def _format_black_frame_status_value(value: object) -> str:
-    try:
-        return _format_black_frame_status(BlackFrameStatus(str(value)))
     except ValueError:
         return str(value or "")
 
@@ -391,11 +351,26 @@ def _format_number(value: float | None) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _format_resolution(width: int | None, height: int | None) -> str:
+    if width is None or height is None:
+        return "未知"
+    return f"{width}x{height}"
+
+
 def _float_or_none(value: object) -> float | None:
     if value is None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -414,53 +389,25 @@ def _format_record_message(task: dict[str, object]) -> str:
     return message
 
 
-def _load_history(history_path: Path) -> dict[str, object]:
-    if not history_path.exists():
+def _load_history(path: Path) -> dict[str, object]:
+    if not path.exists():
         return {"schema_version": SCHEMA_VERSION, "runs": []}
     try:
-        with history_path.open("r", encoding="utf-8") as file:
-            history = json.load(file)
+        with path.open("r", encoding="utf-8") as file:
+            loaded = json.load(file)
     except (OSError, json.JSONDecodeError):
         return {"schema_version": SCHEMA_VERSION, "runs": []}
-
-    if not isinstance(history, dict) or not isinstance(history.get("runs"), list):
+    if not isinstance(loaded, dict):
         return {"schema_version": SCHEMA_VERSION, "runs": []}
-    history["schema_version"] = SCHEMA_VERSION
-    return history
+    runs = loaded.get("runs")
+    if not isinstance(runs, list):
+        loaded["runs"] = []
+    loaded["schema_version"] = SCHEMA_VERSION
+    return loaded
 
 
-def _write_history(history_path: Path, history: dict[str, object]) -> None:
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    with history_path.open("w", encoding="utf-8") as file:
+def _write_history(path: Path, history: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
         json.dump(history, file, ensure_ascii=False, indent=2)
-        file.write("\n")
 
-
-def _cleanup_removed_report_dirs(removed_runs: list[object]) -> None:
-    for run in removed_runs:
-        if not isinstance(run, dict):
-            continue
-        result_csv = run.get("result_csv")
-        if not isinstance(result_csv, str) or not result_csv:
-            continue
-        report_dir = Path(result_csv).parent
-        if report_dir.name in {"", ".", ".."}:
-            continue
-        if report_dir.name == REPORTS_DIRNAME:
-            continue
-        try:
-            _remove_report_dir_if_empty_or_result_only(report_dir)
-        except OSError:
-            continue
-
-
-def _remove_report_dir_if_empty_or_result_only(report_dir: Path) -> None:
-    if not report_dir.is_dir():
-        return
-    allowed_names = {"result.csv", "result.json"}
-    children = list(report_dir.iterdir())
-    if any(child.name not in allowed_names or child.is_dir() for child in children):
-        return
-    for child in children:
-        child.unlink()
-    report_dir.rmdir()

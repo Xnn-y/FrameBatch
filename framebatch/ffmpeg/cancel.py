@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Event, Lock
+import platform
 import subprocess
 import time
 
 from framebatch.ffmpeg.errors import FFmpegError
 
+_CREATE_NO_WINDOW = 0x08000000 if platform.system() == "Windows" else 0
+
 
 CANCELED_ERROR_CODE = "OPERATION_CANCELED"
-CANCELED_MESSAGE = "抽帧已终止。"
+CANCELED_MESSAGE = "处理已终止。"
 
 
 @dataclass(slots=True)
@@ -57,6 +60,7 @@ def run_cancelable(
             capture_output=True,
             check=False,
             timeout=timeout,
+            creationflags=_CREATE_NO_WINDOW,
         )
 
     if cancel_token.is_requested():
@@ -66,6 +70,7 @@ def run_cancelable(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        creationflags=_CREATE_NO_WINDOW,
     )
     cancel_token.bind_process(process)
     started_at = time.monotonic()

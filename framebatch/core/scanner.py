@@ -25,6 +25,14 @@ VIDEO_EXTENSIONS = {
     ".m2ts",
 }
 
+IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".bmp",
+}
+
 EPISODE_PATTERNS = [
     re.compile(r"第\s*([0-9０-９]+)\s*[集话話期]", re.IGNORECASE),
     re.compile(r"(?<![a-z0-9])(?:ep|episode|e)\s*0*([0-9０-９]+)(?![a-z0-9])", re.IGNORECASE),
@@ -40,12 +48,13 @@ class VideoProber(Protocol):
 class ScanResult:
     source_dir: Path
     videos: list[VideoFile]
+    cover_images: list[NonVideoFile]
     candidate_videos: list[NonVideoFile]
     non_videos: list[NonVideoFile]
 
     @property
     def total_files(self) -> int:
-        return len(self.videos) + len(self.candidate_videos) + len(self.non_videos)
+        return len(self.videos) + len(self.cover_images) + len(self.candidate_videos) + len(self.non_videos)
 
 
 def scan_directory(source_dir: Path, prober: VideoProber | None) -> ScanResult:
@@ -53,6 +62,7 @@ def scan_directory(source_dir: Path, prober: VideoProber | None) -> ScanResult:
         raise FileNotFoundError(f"Input directory does not exist: {source_dir}")
 
     videos: list[VideoFile] = []
+    cover_images: list[NonVideoFile] = []
     candidate_videos: list[NonVideoFile] = []
     non_videos: list[NonVideoFile] = []
 
@@ -61,6 +71,10 @@ def scan_directory(source_dir: Path, prober: VideoProber | None) -> ScanResult:
             continue
 
         suffix = path.suffix.lower()
+        if suffix in IMAGE_EXTENSIONS:
+            cover_images.append(NonVideoFile(path=str(path), reason="封面图片候选。"))
+            continue
+
         if suffix not in VIDEO_EXTENSIONS:
             non_videos.append(
                 NonVideoFile(path=str(path), reason="文件扩展名不是视频候选格式。")
@@ -81,6 +95,7 @@ def scan_directory(source_dir: Path, prober: VideoProber | None) -> ScanResult:
     return ScanResult(
         source_dir=source_dir,
         videos=videos,
+        cover_images=cover_images,
         candidate_videos=candidate_videos,
         non_videos=non_videos,
     )

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import platform
 import subprocess
 
 from framebatch.core.models import BlackFrameStatus
 from framebatch.ffmpeg.errors import FFmpegError
+
+_CREATE_NO_WINDOW = 0x08000000 if platform.system() == "Windows" else 0
 
 
 DEFAULT_AVERAGE_LUMA_THRESHOLD = 16.0
@@ -60,6 +63,7 @@ class BlackFrameChecker:
                 capture_output=True,
                 check=False,
                 timeout=self.timeout_seconds,
+                creationflags=_CREATE_NO_WINDOW,
             )
         except subprocess.TimeoutExpired as exc:
             raise FFmpegError(

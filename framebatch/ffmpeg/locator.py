@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
+import sys
 
 
 FFMPEG_EXE = "ffmpeg.exe"
@@ -32,9 +33,10 @@ def locate_ffmpeg(
     if configured.is_available:
         return configured
 
-    bundled = _from_bundled_path(app_root or Path.cwd())
-    if bundled.is_available:
-        return bundled
+    for root in _candidate_app_roots(app_root):
+        bundled = _from_bundled_path(root)
+        if bundled.is_available:
+            return bundled
 
     system = _from_system_path()
     if system.is_available:
@@ -77,6 +79,8 @@ def _from_bundled_path(app_root: Path) -> FFmpegLocation:
     candidate_dirs = [
         app_root / "tools" / "ffmpeg",
         app_root / "tools" / "ffmpeg" / "bin",
+        app_root / "_internal" / "tools" / "ffmpeg",
+        app_root / "_internal" / "tools" / "ffmpeg" / "bin",
     ]
 
     for bin_dir in candidate_dirs:
@@ -91,6 +95,30 @@ def _from_bundled_path(app_root: Path) -> FFmpegLocation:
             )
 
     return FFmpegLocation(None, None, "bundled", "未找到内置 FFmpeg。")
+
+
+def _candidate_app_roots(app_root: Path | None) -> list[Path]:
+    roots: list[Path] = []
+    if app_root is not None:
+        roots.append(app_root)
+
+    pyinstaller_root = getattr(sys, "_MEIPASS", None)
+    if pyinstaller_root:
+        roots.append(Path(pyinstaller_root))
+
+    if getattr(sys, "frozen", False):
+        roots.append(Path(sys.executable).resolve().parent)
+
+    roots.append(Path.cwd())
+
+    unique_roots: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        resolved = root.resolve()
+        if resolved not in seen:
+            unique_roots.append(resolved)
+            seen.add(resolved)
+    return unique_roots
 
 
 def _from_system_path() -> FFmpegLocation:

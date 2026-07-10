@@ -7,9 +7,6 @@ from pathlib import Path
 import json
 import os
 
-from framebatch.core.naming import split_output_dirs
-
-
 APP_NAME = "FrameBatch"
 SETTINGS_FILENAME = "settings.json"
 
@@ -20,6 +17,7 @@ class UserSettings:
     last_output_dir: str | None = None
     last_cover_output_dir: str | None = None
     last_video_output_dir: str | None = None
+    cover_image_path: str | None = None
     unified_output_name: str | None = None
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
@@ -62,6 +60,7 @@ class SettingsStore:
             last_output_dir=raw.get("last_output_dir"),
             last_cover_output_dir=last_cover_output_dir,
             last_video_output_dir=last_video_output_dir,
+            cover_image_path=raw.get("cover_image_path"),
             unified_output_name=raw.get("unified_output_name"),
             ffmpeg_path=raw.get("ffmpeg_path"),
             ffprobe_path=raw.get("ffprobe_path"),
@@ -89,15 +88,7 @@ def _load_split_output_dirs(raw: dict[str, object]) -> tuple[str | None, str | N
     video_output_dir = _optional_string(raw.get("last_video_output_dir")) or _optional_string(
         raw.get("last_output_dir")
     )
-    if not cover_output_dir or not video_output_dir:
-        return cover_output_dir, video_output_dir
-
-    cover_path = Path(cover_output_dir)
-    video_path = Path(video_output_dir)
-    split_cover_path, split_video_path = split_output_dirs(cover_path, video_path)
-    if (split_cover_path, split_video_path) == (cover_path, video_path):
-        return cover_output_dir, video_output_dir
-    return str(split_cover_path), str(split_video_path)
+    return cover_output_dir, video_output_dir
 
 
 def _optional_string(value: object) -> str | None:

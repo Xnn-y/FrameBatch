@@ -32,6 +32,8 @@ class VideoFile:
     duration_seconds: float | None = None
     frame_rate: float | None = None
     total_frames: int | None = None
+    width: int | None = None
+    height: int | None = None
     has_audio: bool = False
 
 
