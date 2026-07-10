@@ -17,10 +17,12 @@ def test_cover_worker_marks_not_started_tasks_skipped_after_cancel(tmp_path: Pat
             config=TaskConfig(frame_user_index=1),
         ),
     ]
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"jpg")
     worker = CoverWorker(
         tasks,
         Path("ffmpeg.exe"),
-        tmp_path / "covers",
+        cover,
         tmp_path / "videos",
         unified_name="",
         overwrite=False,

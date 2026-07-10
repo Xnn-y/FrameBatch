@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from framebatch.ffmpeg import locator
 from framebatch.ffmpeg.locator import locate_ffmpeg
 
 
@@ -40,6 +41,22 @@ def test_locate_ffmpeg_uses_flat_bundled_path_when_present() -> None:
     (bin_dir / "ffprobe.exe").write_text("", encoding="utf-8")
 
     location = locate_ffmpeg(app_root=app_root)
+
+    assert location.is_available is True
+    assert location.source == "bundled"
+    assert location.ffmpeg_path == bin_dir / "ffmpeg.exe"
+    assert location.ffprobe_path == bin_dir / "ffprobe.exe"
+
+
+def test_locate_ffmpeg_uses_pyinstaller_resource_root(monkeypatch, tmp_path: Path) -> None:
+    resource_root = tmp_path / "_internal"
+    bin_dir = resource_root / "tools" / "ffmpeg"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "ffmpeg.exe").write_text("", encoding="utf-8")
+    (bin_dir / "ffprobe.exe").write_text("", encoding="utf-8")
+    monkeypatch.setattr(locator.sys, "_MEIPASS", str(resource_root), raising=False)
+
+    location = locate_ffmpeg(app_root=tmp_path / "app")
 
     assert location.is_available is True
     assert location.source == "bundled"

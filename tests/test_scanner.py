@@ -23,14 +23,27 @@ def test_scan_directory_splits_videos_and_non_videos() -> None:
     source.mkdir(parents=True, exist_ok=True)
     (source / "clip.mp4").write_text("fake", encoding="utf-8")
     (source / "broken.mp4").write_text("fake", encoding="utf-8")
+    (source / "cover.jpg").write_text("image", encoding="utf-8")
     (source / "notes.txt").write_text("text", encoding="utf-8")
 
     result = scan_directory(source, FakeProber())
 
-    assert result.total_files == 3
+    assert result.total_files == 4
     assert [Path(video.path).name for video in result.videos] == ["clip.mp4"]
+    assert [Path(item.path).name for item in result.cover_images] == ["cover.jpg"]
     assert {Path(item.path).name for item in result.candidate_videos} == {"broken.mp4"}
     assert {Path(item.path).name for item in result.non_videos} == {"notes.txt"}
+
+
+def test_scan_directory_collects_multiple_cover_image_candidates(tmp_path: Path) -> None:
+    (tmp_path / "episode01.mp4").write_text("fake", encoding="utf-8")
+    (tmp_path / "cover.jpg").write_text("image", encoding="utf-8")
+    (tmp_path / "poster.png").write_text("image", encoding="utf-8")
+
+    result = scan_directory(tmp_path, FakeProber())
+
+    assert [Path(item.path).name for item in result.cover_images] == ["cover.jpg", "poster.png"]
+    assert result.non_videos == []
 
 
 def test_scan_directory_marks_candidates_unverified_without_prober() -> None:
