@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "framebatch"
 version = "0.1.0"
-description = "Batch cover extraction and frame removal desktop tool powered by FFmpeg."
+description = "Batch prepend a unified cover image to drama episode videos with FFmpeg."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+]
+build = [
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]

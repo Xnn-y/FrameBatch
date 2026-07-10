@@ -7,5 +7,7 @@ tests/.runtime/
 .venv/
 dist/
 build/
+reports/
 tools/downloads/*
 tools/ffmpeg/*.exe
+tools/ffmpeg/bin/*.exe
