@@ -79,12 +79,16 @@ class FFprobeVideoProber:
         duration = _parse_duration(video_stream, payload.get("format", {}))
         frame_rate = _parse_frame_rate(video_stream)
         total_frames = _parse_total_frames(video_stream, duration, frame_rate)
+        width = _parse_dimension(video_stream.get("width"))
+        height = _parse_dimension(video_stream.get("height"))
 
         return VideoFile(
             path=str(path),
             duration_seconds=duration,
             frame_rate=frame_rate,
             total_frames=total_frames,
+            width=width,
+            height=height,
             has_audio=audio_stream is not None,
         )
 
@@ -124,3 +128,13 @@ def _parse_total_frames(
     if duration is None or frame_rate is None:
         return None
     return max(1, round(duration * frame_rate))
+
+
+def _parse_dimension(value: object) -> int | None:
+    if value in (None, "N/A"):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
