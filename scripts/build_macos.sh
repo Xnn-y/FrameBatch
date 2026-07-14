@@ -63,6 +63,9 @@ fi
 rm -rf "$PACKAGE_DIR"
 mkdir -p "$PACKAGE_DIR"
 ditto "$APP_PATH" "$PACKAGE_DIR/FrameBatch.app"
+if [[ -f "$PROJECT_ROOT/docs/MACOS_USER_GUIDE.md" ]]; then
+  cp "$PROJECT_ROOT/docs/MACOS_USER_GUIDE.md" "$PACKAGE_DIR/"
+fi
 
 rm -f "$ZIP_PATH"
 mkdir -p "$DIST_DIR"
