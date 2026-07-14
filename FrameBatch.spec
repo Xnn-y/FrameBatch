@@ -16,8 +16,12 @@ def optional_data(source: str, destination: str) -> list[tuple[str, str]]:
 datas = []
 datas += optional_data("docs/RELEASE.md", "docs")
 datas += optional_data("docs/FFMPEG_NOTICE.md", "docs")
+datas += optional_data("tools/ffmpeg/ffmpeg", "tools/ffmpeg")
+datas += optional_data("tools/ffmpeg/ffprobe", "tools/ffmpeg")
 datas += optional_data("tools/ffmpeg/ffmpeg.exe", "tools/ffmpeg")
 datas += optional_data("tools/ffmpeg/ffprobe.exe", "tools/ffmpeg")
+datas += optional_data("tools/ffmpeg/bin/ffmpeg", "tools/ffmpeg/bin")
+datas += optional_data("tools/ffmpeg/bin/ffprobe", "tools/ffmpeg/bin")
 datas += optional_data("tools/ffmpeg/bin/ffmpeg.exe", "tools/ffmpeg/bin")
 datas += optional_data("tools/ffmpeg/bin/ffprobe.exe", "tools/ffmpeg/bin")
 
@@ -76,3 +80,14 @@ coll = COLLECT(
     upx_exclude=[],
     name="FrameBatch",
 )
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="FrameBatch.app",
+        icon=None,
+        bundle_identifier="com.framebatch.app",
+        info_plist={
+            "NSHighResolutionCapable": "True",
+            "NSRequiresAquaSystemAppearance": "False",
+        },
+    )

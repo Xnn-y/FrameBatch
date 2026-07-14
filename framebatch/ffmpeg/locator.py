@@ -8,8 +8,9 @@ import shutil
 import sys
 
 
-FFMPEG_EXE = "ffmpeg.exe"
-FFPROBE_EXE = "ffprobe.exe"
+FFMPEG_NAME = "ffmpeg"
+FFPROBE_NAME = "ffprobe"
+WINDOWS_EXECUTABLE_SUFFIX = ".exe"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +47,7 @@ def locate_ffmpeg(
         ffmpeg_path=None,
         ffprobe_path=None,
         source="missing",
-        message="FFmpeg 不可用。请先配置 ffmpeg.exe，才能精确识别视频文件。",
+        message="FFmpeg 不可用。请先配置 ffmpeg，才能精确识别视频文件。",
     )
 
 
@@ -54,12 +55,10 @@ def _from_configured_path(configured_ffmpeg_path: str | None) -> FFmpegLocation:
     if not configured_ffmpeg_path:
         return FFmpegLocation(None, None, "configured", "尚未配置 FFmpeg 路径。")
 
-    ffmpeg_path = Path(configured_ffmpeg_path)
-    if ffmpeg_path.is_dir():
-        ffmpeg_path = ffmpeg_path / FFMPEG_EXE
-    ffprobe_path = ffmpeg_path.with_name(FFPROBE_EXE)
+    configured_path = Path(configured_ffmpeg_path)
+    ffmpeg_path, ffprobe_path = _resolve_ffmpeg_pair(configured_path)
 
-    if ffmpeg_path.is_file() and ffprobe_path.is_file():
+    if ffmpeg_path is not None and ffprobe_path is not None:
         return FFmpegLocation(
             ffmpeg_path=ffmpeg_path,
             ffprobe_path=ffprobe_path,
@@ -71,7 +70,7 @@ def _from_configured_path(configured_ffmpeg_path: str | None) -> FFmpegLocation:
         ffmpeg_path=None,
         ffprobe_path=None,
         source="configured",
-        message="已配置的 FFmpeg 路径不完整，请确认 ffmpeg.exe 与 ffprobe.exe 在同一目录。",
+        message="已配置的 FFmpeg 路径不完整，请确认 ffmpeg 与 ffprobe 在同一目录。",
     )
 
 
@@ -84,9 +83,8 @@ def _from_bundled_path(app_root: Path) -> FFmpegLocation:
     ]
 
     for bin_dir in candidate_dirs:
-        ffmpeg_path = bin_dir / FFMPEG_EXE
-        ffprobe_path = bin_dir / FFPROBE_EXE
-        if ffmpeg_path.is_file() and ffprobe_path.is_file():
+        ffmpeg_path, ffprobe_path = _resolve_ffmpeg_pair(bin_dir)
+        if ffmpeg_path is not None and ffprobe_path is not None:
             return FFmpegLocation(
                 ffmpeg_path=ffmpeg_path,
                 ffprobe_path=ffprobe_path,
@@ -134,3 +132,39 @@ def _from_system_path() -> FFmpegLocation:
         )
 
     return FFmpegLocation(None, None, "path", "系统 PATH 中未找到 FFmpeg。")
+
+
+def _resolve_ffmpeg_pair(path: Path) -> tuple[Path | None, Path | None]:
+    if path.is_dir():
+        for ffmpeg_name, ffprobe_name in _executable_name_pairs():
+            ffmpeg_path = path / ffmpeg_name
+            ffprobe_path = path / ffprobe_name
+            if ffmpeg_path.is_file() and ffprobe_path.is_file():
+                return ffmpeg_path, ffprobe_path
+        return None, None
+
+    if not path.is_file():
+        return None, None
+
+    ffprobe_path = path.with_name(_ffprobe_name_for(path.name))
+    if ffprobe_path.is_file():
+        return path, ffprobe_path
+    return None, None
+
+
+def _executable_name_pairs() -> list[tuple[str, str]]:
+    if sys.platform.startswith("win"):
+        return [
+            (f"{FFMPEG_NAME}{WINDOWS_EXECUTABLE_SUFFIX}", f"{FFPROBE_NAME}{WINDOWS_EXECUTABLE_SUFFIX}"),
+            (FFMPEG_NAME, FFPROBE_NAME),
+        ]
+    return [
+        (FFMPEG_NAME, FFPROBE_NAME),
+        (f"{FFMPEG_NAME}{WINDOWS_EXECUTABLE_SUFFIX}", f"{FFPROBE_NAME}{WINDOWS_EXECUTABLE_SUFFIX}"),
+    ]
+
+
+def _ffprobe_name_for(ffmpeg_name: str) -> str:
+    if ffmpeg_name.lower().endswith(WINDOWS_EXECUTABLE_SUFFIX):
+        return f"{FFPROBE_NAME}{WINDOWS_EXECUTABLE_SUFFIX}"
+    return FFPROBE_NAME

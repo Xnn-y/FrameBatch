@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         self.unified_name_edit.setPlaceholderText("留空使用原文件名；填写后按 名称_1、名称_2 输出")
 
         self.ffmpeg_edit = QLineEdit(self.settings.settings.ffmpeg_path or "")
-        self.ffmpeg_edit.setPlaceholderText("可选：选择 ffmpeg.exe")
+        self.ffmpeg_edit.setPlaceholderText("可选：选择 ffmpeg / ffmpeg.exe")
         self.browse_ffmpeg_button = QPushButton("浏览")
         self.refresh_ffmpeg_button = QPushButton("重新检测")
         self.ffmpeg_status_label = QLabel()
@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
 
         ffmpeg_group = QGroupBox("FFmpeg")
         ffmpeg_layout = QGridLayout(ffmpeg_group)
-        ffmpeg_layout.addWidget(QLabel("ffmpeg.exe"), 0, 0)
+        ffmpeg_layout.addWidget(QLabel("ffmpeg"), 0, 0)
         ffmpeg_layout.addWidget(self.ffmpeg_edit, 0, 1)
         ffmpeg_layout.addWidget(self.browse_ffmpeg_button, 0, 2)
         ffmpeg_layout.addWidget(self.refresh_ffmpeg_button, 0, 3)
@@ -374,9 +374,9 @@ class MainWindow(QMainWindow):
     def _choose_ffmpeg(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择 ffmpeg.exe",
+            "选择 ffmpeg",
             self.ffmpeg_edit.text(),
-            "FFmpeg 可执行文件 (ffmpeg.exe);;所有文件 (*)",
+            "FFmpeg 可执行文件 (ffmpeg ffmpeg.exe);;所有文件 (*)",
         )
         if not path:
             return
@@ -494,7 +494,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "没有任务", "请先扫描出有效视频任务。")
             return
         if not self.ffmpeg_location.ffmpeg_path:
-            QMessageBox.warning(self, "FFmpeg 不可用", "请先配置 ffmpeg.exe，再开始处理。")
+            QMessageBox.warning(self, "FFmpeg 不可用", "请先配置 ffmpeg，再开始处理。")
             return
         cover_image_path = self._selected_cover_image_path()
         if cover_image_path is None:
@@ -741,7 +741,7 @@ class MainWindow(QMainWindow):
         if can_process:
             self.process_button.setToolTip("为每个视频开头插入同一张封面图片，并输出新的 MP4")
         elif has_tasks and self.ffmpeg_location.ffmpeg_path is None:
-            self.process_button.setToolTip("请先配置 ffmpeg.exe，再开始处理")
+            self.process_button.setToolTip("请先配置 ffmpeg，再开始处理")
         elif has_tasks and not has_cover:
             self.process_button.setToolTip("请先扫描自动识别封面，或手动选择一张封面图片。")
         elif self.is_busy:

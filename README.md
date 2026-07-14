@@ -1,6 +1,6 @@
 # FrameBatch
 
-FrameBatch 是一个 Windows 桌面工具，用于给一整部剧集的每个视频前面插入同一张封面图片，并统一输出为 MP4 视频。应用基于 PySide6 和 FFmpeg 构建。
+FrameBatch 是一个桌面工具，用于给一整部剧集的每个视频前面插入同一张封面图片，并统一输出为 MP4 视频。应用基于 PySide6 和 FFmpeg 构建，支持在 Windows 和 macOS 上运行。
 
 ## 当前能力
 
@@ -42,21 +42,41 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 -Clean
 dist/FrameBatch/FrameBatch.exe
 ```
 
+macOS 可在 Mac 机器上使用同一份 PyInstaller spec 构建：
+
+```bash
+python -m pip install -e ".[build]"
+bash scripts/build_macos.sh --clean
+```
+
+macOS 构建结果位于：
+
+```text
+dist/FrameBatch-v0.1.0-macos-arm64/FrameBatch.app
+dist/FrameBatch-v0.1.0-macos-arm64.zip
+```
+
+Apple Silicon Mac 会生成 `macos-arm64` 包，Intel Mac 会生成 `macos-x64` 包。
+
+首次在 Mac 上打包请按 [docs/MACOS_BUILD_STEPS.md](docs/MACOS_BUILD_STEPS.md) 操作。
+
 ## FFmpeg
 
 FrameBatch 会按以下顺序查找 FFmpeg：
 
-1. 用户在界面中手动配置的 `ffmpeg.exe`。
-2. 发布目录下的内置路径：`tools/ffmpeg/ffmpeg.exe` 或 `tools/ffmpeg/bin/ffmpeg.exe`。
+1. 用户在界面中手动配置的 `ffmpeg` / `ffmpeg.exe`，或它们所在的目录。
+2. 发布目录下的内置路径：`tools/ffmpeg/ffmpeg`、`tools/ffmpeg/bin/ffmpeg`、`tools/ffmpeg/ffmpeg.exe` 或 `tools/ffmpeg/bin/ffmpeg.exe`。
 3. 系统 `PATH` 中的 `ffmpeg` 和 `ffprobe`。
 
 如果需要发布内置 FFmpeg 的版本，在打包前放置：
 
 ```text
-tools/ffmpeg/ffmpeg.exe
-tools/ffmpeg/ffprobe.exe
+tools/ffmpeg/ffmpeg      # macOS / Linux
+tools/ffmpeg/ffprobe     # macOS / Linux
+tools/ffmpeg/ffmpeg.exe  # Windows
+tools/ffmpeg/ffprobe.exe # Windows
 ```
 
-PyInstaller onedir 包会自动将它们带入 `dist/FrameBatch/_internal/tools/ffmpeg/`。应用也兼容用户手动放在 `FrameBatch.exe` 同级的 `tools/ffmpeg/`。
+PyInstaller onedir 包会自动将它们带入 `dist/FrameBatch/_internal/tools/ffmpeg/`。应用也兼容用户手动放在 `FrameBatch.exe` 或 `FrameBatch` 同级的 `tools/ffmpeg/`。
 
 更多发布验证步骤见 [docs/RELEASE.md](docs/RELEASE.md)。
