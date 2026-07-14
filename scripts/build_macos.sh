@@ -64,14 +64,6 @@ rm -rf "$PACKAGE_DIR"
 mkdir -p "$PACKAGE_DIR"
 ditto "$APP_PATH" "$PACKAGE_DIR/FrameBatch.app"
 
-DOCS_RELEASE_DIR="$PACKAGE_DIR/docs"
-mkdir -p "$DOCS_RELEASE_DIR"
-for doc_name in RELEASE.md FFMPEG_NOTICE.md MACOS_ADAPTATION_PLAN.md; do
-  if [[ -f "$PROJECT_ROOT/docs/$doc_name" ]]; then
-    cp "$PROJECT_ROOT/docs/$doc_name" "$DOCS_RELEASE_DIR/"
-  fi
-done
-
 rm -f "$ZIP_PATH"
 mkdir -p "$DIST_DIR"
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
