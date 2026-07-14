@@ -68,20 +68,54 @@ Intel Mac 常见路径是：
 /usr/local/bin/ffprobe
 ```
 
-## 3. 拉取项目代码
+## 3. 用 VS Code 拉取项目代码
 
-进入你想放项目的目录，例如桌面：
+如果 Mac 上已经安装 VS Code，推荐直接从 VS Code 里 clone 仓库。
 
-```bash
-cd ~/Desktop
-git clone https://github.com/Xnn-y/FrameBatch.git
-cd FrameBatch
+1. 打开 VS Code。
+2. 按 `Command + Shift + P`。
+3. 输入：
+
+```text
+Git: Clone
 ```
 
-如果已经 clone 过，进入目录后更新代码：
+4. 选择 `Git: Clone`。
+5. 粘贴仓库地址：
+
+```text
+https://github.com/Xnn-y/FrameBatch.git
+```
+
+6. 选择保存位置，例如：
+
+```text
+Desktop
+```
+
+7. 等待 VS Code clone 完成。
+8. VS Code 提示 `Would you like to open the cloned repository?` 时，点击 `Open`。
+
+打开后，左侧文件列表应该能看到：
+
+```text
+FrameBatch.spec
+README.md
+framebatch
+scripts
+docs
+```
+
+如果已经 clone 过：
+
+1. 打开 VS Code。
+2. 点击 `File -> Open Folder...`。
+3. 选择已经存在的 `FrameBatch` 文件夹。
+4. 打开后，在左侧源代码管理面板或内置终端里更新代码。
+
+使用 VS Code 内置终端更新代码：
 
 ```bash
-cd ~/Desktop/FrameBatch
 git pull
 ```
 
@@ -93,6 +127,37 @@ ls scripts/build_macos.sh
 
 如果提示找不到文件，说明 GitHub 上还不是最新代码，需要先在 Windows 端提交并推送 macOS 适配改动。
 
+## 3.1 打开 VS Code 内置终端
+
+打开项目后，在 VS Code 里打开内置终端：
+
+```text
+Terminal -> New Terminal
+```
+
+或使用快捷键：
+
+```text
+Control + `
+```
+
+后面所有命令都可以在 VS Code 下方的内置终端里执行。确认终端当前位置是项目根目录：
+
+```bash
+pwd
+ls
+```
+
+你应该能看到：
+
+```text
+FrameBatch.spec
+README.md
+framebatch
+scripts
+docs
+```
+
 ## 4. 创建 Python 虚拟环境
 
 在项目根目录执行：
@@ -103,6 +168,18 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev,build]"
 ```
+
+如果 VS Code 弹出 Python 解释器选择，选择项目里的虚拟环境：
+
+```text
+.venv/bin/python
+```
+
+也可以手动选择：
+
+1. 按 `Command + Shift + P`。
+2. 输入 `Python: Select Interpreter`。
+3. 选择 `./.venv/bin/python`。
 
 确认 PyInstaller 可用：
 

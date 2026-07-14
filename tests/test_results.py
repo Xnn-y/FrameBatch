@@ -132,10 +132,29 @@ def test_load_history_runs_returns_empty_for_missing_history(tmp_path: Path) -> 
     assert load_history_runs(tmp_path / "config") == []
 
 
-def test_default_report_root_dir_uses_appdata_by_default() -> None:
+def test_default_report_root_dir_uses_appdata_when_available(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData" / "Roaming"))
+
     path = default_report_root_dir()
+
     assert path.name == "reports"
     assert path.parent.name == "FrameBatch"
+    assert path.parent.parent == tmp_path / "AppData" / "Roaming"
+
+
+def test_default_report_root_dir_falls_back_to_home_without_appdata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(results.Path, "home", lambda: tmp_path)
+
+    path = default_report_root_dir()
+
+    assert path == tmp_path / ".framebatch" / "reports"
 
 
 def test_default_report_root_dir_is_independent_of_frozen_state(monkeypatch) -> None:

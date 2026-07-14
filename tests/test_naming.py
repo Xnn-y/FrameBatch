@@ -9,6 +9,7 @@ from framebatch.core.naming import (
     default_video_output_dir,
     normalize_output_stem,
     output_stem_for_task,
+    source_stem,
     split_output_dirs,
     task_output_paths,
     validate_video_output,
@@ -31,6 +32,12 @@ def test_task_output_paths_use_source_stem() -> None:
     paths = task_output_paths(task, Path("videos"))
 
     assert paths.video_path == Path("videos") / "episode01.mp4"
+
+
+def test_source_stem_handles_windows_paths_on_any_platform() -> None:
+    assert source_stem(r"D:\videos\episode01.mp4") == "episode01"
+    assert source_stem("D:/videos/episode02.mp4") == "episode02"
+    assert source_stem("/Users/demo/videos/episode03.mp4") == "episode03"
 
 
 def test_split_output_dirs_keeps_single_video_output_dir() -> None:

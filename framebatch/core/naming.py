@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 
 from framebatch.core.models import FrameTask
@@ -29,7 +29,7 @@ def default_output_dir(source_dir: Path) -> Path:
 
 
 def task_output_paths(task: FrameTask, output_dir: Path) -> TaskOutputPaths:
-    stem = task.config.output_stem or Path(task.video.path).stem
+    stem = task.config.output_stem or source_stem(task.video.path)
     return TaskOutputPaths(video_path=output_dir / f"{stem}.mp4")
 
 
@@ -40,10 +40,16 @@ def split_output_dirs(cover_output_dir: Path, video_output_dir: Path) -> tuple[P
 def output_stem_for_task(task: FrameTask, *, index: int, total: int, unified_name: str) -> str:
     normalized = normalize_output_stem(unified_name)
     if not normalized:
-        return Path(task.video.path).stem
+        return source_stem(task.video.path)
     if total == 1:
         return normalized
     return f"{normalized}_{index}"
+
+
+def source_stem(path: str) -> str:
+    if "\\" in path or PureWindowsPath(path).drive:
+        return PureWindowsPath(path).stem
+    return Path(path).stem
 
 
 def normalize_output_stem(value: str | None) -> str:
